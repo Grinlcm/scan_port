@@ -1,22 +1,67 @@
 #!/usr/bin/env python3
 
-import os
 import re
 import sys
-import time
-import uuid
-import json
-import math
 import socket
-import urllib
 import masscan
-import pathlib
 import requests
 import argparse
-import traceback
+import threading
+from queue import Queue
 import xml.dom.minidom
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+event = threading.Event()
+event.set()
+q = Queue(-1)
+
+class multi_thread(threading.Thread):
+    def __init__(self, num, q, url_path, out_url):
+        threading.Thread.__init__(self)
+        self.num = num
+        self.q = q
+        self.url_path = url_path
+        self.out_url = out_url
+
+    def check_url(self, ip_port):
+        try:
+            print('正在检测:', ip_port)
+            for path in open(self.url_path).readlines():
+                headers = {
+                    'User-Agent': "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36 115Browser/6.0.3",
+                    "Connection": "close"
+                }
+                path = path.strip()
+                if path == '/':
+                    http_url = 'http://{0}'.format(ip_port)
+                    https_url = 'https://{0}'.format(ip_port)
+                else:
+                    http_url = 'http://{0}/{1}'.format(ip_port, path)
+                    https_url = 'https://{0}/{1}'.format(ip_port, path)
+                http_req = requests.get(http_url,  headers = headers, timeout = 10, verify = False)
+                if http_req.status_code == 200:
+                    with open(self.out_path, 'a') as writer:
+                        writer.write(http_url + '\n')
+                    return True
+                https_req = requests.get(https_url,  headers = headers, timeout = 10, verify = False)
+                if https_req.status_code == 200:
+                    with open(self.out_path, 'a') as writer:
+                        writer.write(https_url + '\n')
+                    return True
+        except Exception as e:
+            #print(e)
+            pass
+        finally:
+            pass
+
+    def run(self):
+        while event.is_set():
+            if self.q.empty():
+                event.clear()
+            else:
+                ip_port = self.q.get()
+                self.check_url(ip_port)
 
 def ip_txt_handle(ips):
     cidr_list = set()
@@ -59,7 +104,7 @@ def ip_xml_handle(xml_path):
             scan_list.append(addr + ':' +portid)
     return scan_list
 
-def masscan_scan(ips, ports, url_path, rate, out_port, out_url):
+def masscan_scan(ips, ports, url_path, rate, out_port, out_url, q):
     scan_list = []
     print('Masscan starting.....\n')
     masscan_scan = masscan.PortScanner()
@@ -77,7 +122,7 @@ def masscan_scan(ips, ports, url_path, rate, out_port, out_url):
         for ip_port in scan_list:
             with open(out_port, 'a') as writer:
                 writer.write(ip_port + '\n')
-            check(ip_port, url_path, out_url)
+            q.put(ip_port)
         print('Path scanned.....\n')
     except Exception as e:
         print(e)
@@ -85,29 +130,7 @@ def masscan_scan(ips, ports, url_path, rate, out_port, out_url):
     finally:
         pass
 
-def check(host, url_path, out_path):
-    try:
-        for path in open(url_path).readlines():
-            headers = {
-                'User-Agent': "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36 115Browser/6.0.3",
-                "Connection": "close"
-            }
-            path = path.strip()
-            url = 'http://{0}/{1}'.format(host, path)
-            req = requests.get(url,  headers = headers, timeout = 20, verify = False)
-            if req.status_code == 200:
-                with open(out_path, 'a') as writer:
-                    #print(http_url + '\n')
-                    writer.write(url + '\n')
-                    return True
-            return False
-    except Exception as e:
-        #print(e)
-        pass
-    finally:
-        pass
-
-def main(ips, ports, url_path, rate, out_port, out_url):
+def main(ips, ports, url_path, rate, out_port, out_url, thread_num):
     if 'txt' in ips:
         ip_txt_handle(ips)
     port_list = []
@@ -121,20 +144,29 @@ def main(ips, ports, url_path, rate, out_port, out_url):
         for ip_port in scan_list:
             with open(out_port, 'a') as writer:
                 writer.write(ip_port + '\n')
-            check(ip_port, url_path, out_url)
+                writer.write(ip_port + '\n')
+            q.put(ip_port)
     else:
-        masscan_scan(ips, ports, url_path, rate, out_port, out_url)
+        masscan_scan(ips, ports, url_path, rate, out_port, out_url, q)
+    threads = []
+    for num in range(1, thread_num + 1):
+        t = multi_thread(num, q, url_path, out_url)
+        threads.append(t)
+        t.start()
+    for t in threads:
+        t.join()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog = 'scan port', usage = 'python3 ps_masscan.py [options]')
-    parser.add_argument('-i', "--ip", type = str, help = '-t 127.0.0.1 or -t ip.txt or ip.xml')
-    parser.add_argument('-p', "--ports", type = str, help = '-p 80 or -p port.txt')
-    parser.add_argument('-urlpath', "--urlpath", type = str, help ='-urlpath urlpath.txt')
-    parser.add_argument('-rate', "--rate", type = int, help ='-rate 1000')
-    parser.add_argument('-outport', '--outport', type = str, help = '-outport outport.txt')
-    parser.add_argument('-outurl', '--outurl', type = str, help = '-outpurl outport.txt')
+    parser = argparse.ArgumentParser(prog = 'scan port', usage = 'python3 masscan_scan.py -i 127.0.0.1 -p 80 -path url_path.txt  -rate 1000 -outport outport.txt -outurl outurl.txt -threads 10')
+    parser.add_argument('-i', "--ip", type = str, help = '-i 127.0.0.1 or -t ip.txt or ip.xml')  #扫描的目标,可是一个IP,或者一个包含多个IP的txt,或者是用nmap或者masscan扫描的xml结果
+    parser.add_argument('-p', "--ports", type = str, help = '-p 80 or -p port.txt')  #扫描的端口,可是一个端口,或者一个包含多个端口的txt,或者是1-65535
+    parser.add_argument('-path', "--urlpath", type = str, help ='-path urlpath.txt')  #要检测的url路径
+    parser.add_argument('-r', "--rate", type = int, help ='-r 1000')  #设置masscan扫描时的扫描速率
+    parser.add_argument('-outport', '--outport', type = str, help = '-outport outport.txt')  #保存所有IP+PORT的文本的路径
+    parser.add_argument('-outurl', '--outurl', type = str, help = '-outpurl outurl.txt')   #保存所有可用http或者https所访问的地址文本的路径
+    parser.add_argument('-t', '--threads', type = int, help = '-t 10')   #检测url时所用的线程数量
     args = parser.parse_args()
-    if len(sys.argv) != 13:
+    if len(sys.argv) != 15:
         parser.print_help()
         exit()
-    main(args.ip, args.ports, args.urlpath, args.rate, args.outport, args.outurl)
+    main(args.ip, args.ports, args.urlpath, args.rate, args.outport, args.outurl, args.threads)
