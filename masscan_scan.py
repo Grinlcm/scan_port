@@ -41,12 +41,12 @@ class multi_thread(threading.Thread):
                     https_url = 'https://{0}/{1}'.format(ip_port, path)
                 http_req = requests.get(http_url,  headers = headers, timeout = 10, verify = False)
                 if http_req.status_code == 200:
-                    with open(self.out_path, 'a') as writer:
+                    with open(self.out_url, 'a') as writer:
                         writer.write(http_url + '\n')
                     return True
                 https_req = requests.get(https_url,  headers = headers, timeout = 10, verify = False)
                 if https_req.status_code == 200:
-                    with open(self.out_path, 'a') as writer:
+                    with open(self.out_url, 'a') as writer:
                         writer.write(https_url + '\n')
                     return True
         except Exception as e:

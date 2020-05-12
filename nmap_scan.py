@@ -39,18 +39,18 @@ class multi_thread(threading.Thread):
                 else:
                     http_url = 'http://{0}/{1}'.format(ip_port, path)
                     https_url = 'https://{0}/{1}'.format(ip_port, path)
-                http_req = requests.get(http_url,  headers = headers, timeout = 10, verify = False)
+                http_req = requests.get(http_url,  headers = headers, verify = False)
                 if http_req.status_code == 200:
-                    with open(self.out_path, 'a') as writer:
+                    with open(self.out_url, 'a') as writer:
                         writer.write(http_url + '\n')
                     return True
-                https_req = requests.get(https_url,  headers = headers, timeout = 10, verify = False)
+                https_req = requests.get(https_url,  headers = headers, verify = False)
                 if https_req.status_code == 200:
-                    with open(self.out_path, 'a') as writer:
+                    with open(self.out_url, 'a') as writer:
                         writer.write(https_url + '\n')
                     return True
         except Exception as e:
-            #print(e)
+            print(e)
             pass
         finally:
             pass
@@ -138,7 +138,7 @@ def main(ips, ports, url_path, out_port, out_url, thread_num):
                 writer.write(ip_port + '\n')
             q.put(ip_port)
     else:
-        nmap_scan(ips, ports, url_path, out_port, out_url)
+        nmap_scan(ips, ports, url_path, out_port, out_url, q)
     threads = []
     for num in range(1, thread_num + 1):
         t = multi_thread(num, q, url_path, out_url)
@@ -150,7 +150,7 @@ def main(ips, ports, url_path, out_port, out_url, thread_num):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog = 'scan port', usage = 'python3 nmap_scan.py -i 127.0.0.1 -p 80 -path url_path.txt -outport outport.txt -outurl outurl.txt -t 10')
-    parser.add_argument('-i', "--ip", type = str, help = '-t 127.0.0.1 or -t ip.txt or ip.xml')    #扫描的目标,可是一个IP,或者一个包含多个IP的txt,或者是用nmap或者masscan扫描的xml结果
+    parser.add_argument('-i', "--ip", type = str, help = '-i 127.0.0.1 or -i ip.txt or ip.xml')    #扫描的目标,可是一个IP,或者一个包含多个IP的txt,或者是用nmap或者masscan扫描的xml结果
     parser.add_argument('-p', "--ports", type = str, help = '-p 80 or -p port.txt')    #扫描的端口,可是一个端口,或者一个包含多个端口的txt,或者是1-65535
     parser.add_argument('-path', "--urlpath", type = str, help ='-path urlpath.txt')   #要检测的url路径
     parser.add_argument('-outport', '--outport', type = str, help = '-outport outport.txt')  #保存所有IP+PORT的文本的路径
